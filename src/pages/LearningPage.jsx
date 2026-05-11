@@ -35,14 +35,7 @@ const LearningPage = () => {
       resourceUrl: "#",
       difficulty: "Beginner",
     },
-    {
-      id: 4,
-      title: "📚 JSL Vocabulary",
-      description: "Expand your vocabulary with common words and phrases",
-      topics: ["Various Terms"],
-      resourceUrl: "#",
-      difficulty: "Beginner",
-    },
+    
   ];
 
   if (!isAuthenticated) {

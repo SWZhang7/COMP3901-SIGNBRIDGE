@@ -124,19 +124,7 @@ const QuizPage = () => {
         { id: 3, image: WhatIsThatGif, options: ["What are you doing?", "What time is it?", "Who are you?", "What is that?"], correct: 3 },
       ],
     },
-    {
-      id: 4,
-      title: " JSL Vocabulary Quiz",
-      description: "Test your knowledge of common JSL vocabulary words",
-      icon: "📚",
-      difficulty: "Beginner",
-      questions: 15,
-      flashcards: [
-        { id: 1, image: " ", options: [""], correct: 0 },
-        { id: 2, image: " ", options: [""], correct: 1 },
-        { id: 3, image: " ", options: [""], correct: 0 },
-      ],
-    },
+    
   ];
 
   const startQuiz = (quiz) => {
