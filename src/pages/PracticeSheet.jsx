@@ -38,6 +38,10 @@ import Seven from "../assets/7.png";
 import Eight from "../assets/8.png";
 import Nine from "../assets/9.png";
 
+import GoodDayGif from "../assets/good-day.gif";
+import WhatIsThatGif from "../assets/what-is-that.gif";
+import WhatTimeIsItGif from "../assets/what-time-is-it.gif";
+
 import Fallback from "../assets/asl-image.jpeg";
 
 const IMAGE_MAP = {
@@ -76,6 +80,9 @@ const IMAGE_MAP = {
   7: Seven,
   8: Eight,
   9: Nine,
+  "GOOD DAY": GoodDayGif,
+  "WHAT IS THAT": WhatIsThatGif,
+  "WHAT TIME IS IT": WhatTimeIsItGif,
 };
 
 const SHEETS = {
@@ -113,18 +120,16 @@ const SHEETS = {
   },
   2: {
     title: "Numbers Practice Sheet",
-    description: "Practice counting and signing numbers 1–10.",
-    items: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+    description: "Practice counting and signing numbers 1–9.",
+    items: ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
   },
   3: {
     title: "Basic Greetings Practice Sheet",
     description: "Common greetings and short phrases to practice.",
     items: [
-      "Hello",
-      "Goodbye",
-      "Good morning",
-      "How are you?",
-      "Nice to meet you",
+       "GOOD DAY",
+       "WHAT IS THAT",
+       "WHAT TIME IS IT",
     ],
   },
   4: {
