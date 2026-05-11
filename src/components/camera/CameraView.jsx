@@ -13,7 +13,7 @@ const CameraView = ({ onTranslation }) => {
       if (webcamRef.current && isCameraActive) {
         captureAndTranslate();
       }
-    }, 100);
+    }, 200);
 
     return () => clearInterval(interval);
   }, [isCameraActive]);
