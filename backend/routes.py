@@ -5,6 +5,10 @@ from __init__ import bcrypt
 from supabase_client import table
 import re
 from datetime import datetime
+import base64
+import cv2
+import numpy as np
+from sign_model import process_frame, clear_conversation
 
 auth = Blueprint('auth', __name__)
 
@@ -269,3 +273,34 @@ def health():
         return jsonify({"status": "ok"})
     except Exception as e:
         return jsonify({"status": "error", "detail": str(e)}), 500
+    
+    
+@auth.route('/predict-sign', methods=['POST'])
+def predict_sign_route():
+    try:
+        data = request.get_json(silent=True)
+
+        if not data:
+            return jsonify({"error": "Request body required"}), 400
+
+        image_data = data.get("image")
+
+        if not image_data:
+            return jsonify({"error": "No image received"}), 400
+
+        encoded_data = image_data.split(",")[1]
+
+        nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        result = process_frame(frame)
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@auth.route('/clear-translation', methods=['POST'])
+def clear_translation_route():
+    return jsonify(clear_conversation())
