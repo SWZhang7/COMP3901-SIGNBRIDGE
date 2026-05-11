@@ -26,7 +26,6 @@ const ProfilePage = () => {
     );
   }
 
-  // Use progress from Redux state
   const userData = {
     name: user?.name || "User",
     email: user?.email || "user@example.com",
@@ -70,8 +69,8 @@ const ProfilePage = () => {
     const quizzes = userData.stats.quizzesTaken;
     if (quizzes === 0) return "Beginner";
     if (quizzes <= 3) return "Beginner";
-    if (quizzes <= 7) return "Intermediate";
-    return "Advanced";
+    if (quizzes <= 7) return "Beginner";
+    return "Beginner";
   };
 
   const currentLevel = getUserLevel();

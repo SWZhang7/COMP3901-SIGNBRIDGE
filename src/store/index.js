@@ -7,3 +7,5 @@ export const store = configureStore({
     user: userReducer,
   },
 });
+
+// TODO: actually use Redux instead of Context later

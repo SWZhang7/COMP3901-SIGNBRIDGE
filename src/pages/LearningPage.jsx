@@ -228,7 +228,7 @@ const LearningPage = () => {
         })}
       </div>
 
-      {/* Quiz CTA */}
+      {/* Quiz call to action */}
       <div
         style={{
           marginTop: "2rem",
