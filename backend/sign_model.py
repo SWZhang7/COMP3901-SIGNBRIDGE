@@ -2,7 +2,6 @@ import cv2
 import mediapipe as mp
 import joblib
 import numpy as np
-import math
 import time
 from collections import deque
 import os
@@ -14,14 +13,18 @@ STATIC_MODEL_FILE = os.path.join(MODEL_DIR, "static_model.pkl")
 WORD_MODEL_FILE = os.path.join(MODEL_DIR, "word_model.pkl")
 PHRASE_MODEL_FILE = os.path.join(MODEL_DIR, "phrase_model.pkl")
 
-SEQUENCE_LENGTH = 22
-TWO_HAND_SEQUENCE_LENGTH = 25
+SEQUENCE_LENGTH = 40
+TWO_HAND_SEQUENCE_LENGTH = 40
 
 WORD_CONF_THRESHOLD = 50.0
 PHRASE_CONF_THRESHOLD = 50.0
 
-MOTION_LOCK_SECONDS = .8
-STATIC_MOTION_BLOCK_THRESHOLD = 0.04
+STATIC_HOLD_SECONDS = 2.0
+REPEAT_COOLDOWN_SECONDS = 1.5
+WORD_COOLDOWN = 2.8
+PHRASE_COOLDOWN = 2.8
+
+DISPLAY_HOLD_SECONDS = 3.5
 
 mp_hands = mp.solutions.hands
 
@@ -32,8 +35,8 @@ phrase_model = joblib.load(PHRASE_MODEL_FILE)
 hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=2,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5
+    min_detection_confidence=0.4,
+    min_tracking_confidence=0.4
 )
 
 word_buffer = deque(maxlen=SEQUENCE_LENGTH)
@@ -42,21 +45,15 @@ conversation = deque(maxlen=12)
 
 stable_output = ""
 stable_start_time = 0
-hold_seconds = 2.0
 
 last_committed_output = ""
 last_commit_time = 0
-repeat_cooldown_seconds = 1.5
 
 word_last_commit = 0
-word_cooldown = 2.8
-
 phrase_last_commit = 0
-phrase_cooldown = 2.8
 
 display_text = ""
 display_until = 0
-last_motion_time = 0
 
 
 def extract_landmarks(hand_landmarks):
@@ -88,21 +85,6 @@ def extract_two_hand_landmarks(results):
     return left_hand + right_hand
 
 
-def frame_motion_amount(sequence_buffer):
-    if len(sequence_buffer) < 2:
-        return 0.0
-
-    prev_frame = sequence_buffer[-2]
-    curr_frame = sequence_buffer[-1]
-
-    total = 0.0
-
-    for i in range(len(prev_frame)):
-        total += abs(curr_frame[i] - prev_frame[i])
-
-    return total / len(prev_frame)
-
-
 def sequence_has_enough_motion(sequence_buffer, threshold=0.045):
     if len(sequence_buffer) < 2:
         return False
@@ -125,7 +107,7 @@ def sequence_has_enough_motion(sequence_buffer, threshold=0.045):
     return average_motion > threshold
 
 
-def sequence_has_enough_motion_2hand(sequence_buffer, threshold=0.08):
+def sequence_has_enough_motion_2hand(sequence_buffer, threshold=0.06):
     if len(sequence_buffer) < 2:
         return False
 
@@ -150,10 +132,15 @@ def sequence_has_enough_motion_2hand(sequence_buffer, threshold=0.08):
 def commit_output(text, now):
     global last_committed_output
     global last_commit_time
+    global display_text
+    global display_until
 
     conversation.appendleft(text)
     last_committed_output = text
     last_commit_time = now
+
+    display_text = text
+    display_until = now + DISPLAY_HOLD_SECONDS
 
     return text
 
@@ -167,7 +154,6 @@ def process_frame(frame):
     global phrase_last_commit
     global display_text
     global display_until
-    global last_motion_time
 
     frame = cv2.flip(frame, 1)
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -187,11 +173,12 @@ def process_frame(frame):
 
     current_output = ""
     committed_output = ""
+
     status_text = "Waiting"
+    hold_text = f"Hold: 0.0 / {STATIC_HOLD_SECONDS:.1f}"
     num_hands_detected = 0
 
-    motion_now = False
-
+    # ---------------- HAND DETECTION ----------------
     if hand_results.multi_hand_landmarks:
         num_hands_detected = len(hand_results.multi_hand_landmarks)
 
@@ -200,19 +187,14 @@ def process_frame(frame):
             landmarks = extract_landmarks(hand_landmarks)
 
             if len(landmarks) == 63:
+                prediction = static_model.predict([landmarks])[0]
+                current_prediction = prediction
+
+                if hasattr(static_model, "predict_proba"):
+                    probabilities = static_model.predict_proba([landmarks])[0]
+                    current_confidence = float(np.max(probabilities)) * 100
+
                 word_buffer.append(landmarks)
-
-                if len(word_buffer) >= 2:
-                    if frame_motion_amount(word_buffer) > STATIC_MOTION_BLOCK_THRESHOLD:
-                        motion_now = True
-
-                if not motion_now:
-                    prediction = static_model.predict([landmarks])[0]
-                    current_prediction = prediction
-
-                    if hasattr(static_model, "predict_proba"):
-                        probabilities = static_model.predict_proba([landmarks])[0]
-                        current_confidence = float(np.max(probabilities)) * 100
 
             phrase_buffer.clear()
 
@@ -222,10 +204,6 @@ def process_frame(frame):
             if combined_landmarks and len(combined_landmarks) == 126:
                 phrase_buffer.append(combined_landmarks)
 
-                if len(phrase_buffer) >= 2:
-                    if frame_motion_amount(phrase_buffer) > STATIC_MOTION_BLOCK_THRESHOLD:
-                        motion_now = True
-
             word_buffer.clear()
 
     else:
@@ -234,11 +212,7 @@ def process_frame(frame):
         word_buffer.clear()
         phrase_buffer.clear()
 
-    if motion_now:
-        last_motion_time = now
-
-    motion_lock_active = now - last_motion_time < MOTION_LOCK_SECONDS
-
+    # ---------------- 1-HAND MOTION MODEL ----------------
     if len(word_buffer) == SEQUENCE_LENGTH and sequence_has_enough_motion(word_buffer):
         flattened = []
 
@@ -251,6 +225,7 @@ def process_frame(frame):
             probs = word_model.predict_proba([flattened])[0]
             word_conf = float(np.max(probs)) * 100
 
+    # ---------------- 2-HAND MOTION MODEL ----------------
     if len(phrase_buffer) == TWO_HAND_SEQUENCE_LENGTH and sequence_has_enough_motion_2hand(phrase_buffer):
         flattened_two_hand = []
 
@@ -263,24 +238,26 @@ def process_frame(frame):
             probs = phrase_model.predict_proba([flattened_two_hand])[0]
             phrase_conf = float(np.max(probs)) * 100
 
-    if motion_lock_active:
-        current_output = ""
-        status_text = "Motion detected"
-    else:
-        current_output = current_prediction
+    # ---------------- PRIORITY ----------------
+    # Matches additioncore priority:
+    # 2-hand motion > 1-hand motion > 1-hand static
+    current_output = current_prediction
+    display_confidence = current_confidence
 
     if phrase_output and phrase_conf > PHRASE_CONF_THRESHOLD:
         current_output = phrase_output
+        display_confidence = phrase_conf
+
     elif word_output and word_conf > WORD_CONF_THRESHOLD:
         current_output = word_output
+        display_confidence = word_conf
 
+    # ---------------- AUTO COMMIT ----------------
     if phrase_output and phrase_conf > PHRASE_CONF_THRESHOLD:
-        can_commit_phrase = now - phrase_last_commit >= phrase_cooldown
+        can_commit_phrase = now - phrase_last_commit >= PHRASE_COOLDOWN
 
         if can_commit_phrase:
             committed_output = commit_output(phrase_output, now)
-            display_text = phrase_output
-            display_until = now + 3.5
             status_text = f"Phrase added: {phrase_output}"
             phrase_last_commit = now
             phrase_buffer.clear()
@@ -290,12 +267,10 @@ def process_frame(frame):
             status_text = "Phrase cooldown"
 
     elif word_output and word_conf > WORD_CONF_THRESHOLD:
-        can_commit_word = now - word_last_commit >= word_cooldown
+        can_commit_word = now - word_last_commit >= WORD_COOLDOWN
 
         if can_commit_word:
             committed_output = commit_output(word_output, now)
-            display_text = word_output
-            display_until = now + 3.5
             status_text = f"Word added: {word_output}"
             word_last_commit = now
             word_buffer.clear()
@@ -312,16 +287,16 @@ def process_frame(frame):
             stable_start_time = now
             held_time = 0
 
-        if held_time >= hold_seconds:
+        hold_text = f"Hold: {held_time:.1f} / {STATIC_HOLD_SECONDS:.1f}"
+
+        if held_time >= STATIC_HOLD_SECONDS:
             can_commit_static = (
                 current_output != last_committed_output
-                or now - last_commit_time >= repeat_cooldown_seconds
+                or now - last_commit_time >= REPEAT_COOLDOWN_SECONDS
             )
 
             if can_commit_static:
                 committed_output = commit_output(current_output, now)
-                display_text = current_output
-                display_until = now + 2.5
                 status_text = f"Static added: {current_output}"
                 stable_output = ""
                 stable_start_time = 0
@@ -330,14 +305,15 @@ def process_frame(frame):
             else:
                 status_text = "Repeat cooldown"
         else:
-            status_text = f"Holding {held_time:.1f}/{hold_seconds:.1f}"
+            status_text = "Holding..."
 
     else:
-        if not motion_lock_active:
-            stable_output = ""
-            stable_start_time = 0
-            status_text = "Waiting"
+        stable_output = ""
+        stable_start_time = 0
+        hold_text = f"Hold: 0.0 / {STATIC_HOLD_SECONDS:.1f}"
+        status_text = "Waiting"
 
+    # Keep the committed output visible briefly on the frontend
     shown_prediction = current_output
 
     if now < display_until and display_text:
@@ -345,14 +321,18 @@ def process_frame(frame):
 
     return {
         "prediction": str(shown_prediction) if shown_prediction else "",
+        "current_prediction": str(current_output) if current_output else "",
         "committed": str(committed_output) if committed_output else "",
-        "confidence": round(current_confidence / 100, 4),
-        "confidence_percent": round(current_confidence, 2),
+        "confidence": round(display_confidence / 100, 4),
+        "confidence_percent": round(display_confidence, 2),
+        "static_prediction": str(current_prediction) if current_prediction else "",
+        "static_confidence": round(current_confidence, 2),
         "word": str(word_output) if word_output else "",
         "word_confidence": round(word_conf, 2),
         "phrase": str(phrase_output) if phrase_output else "",
         "phrase_confidence": round(phrase_conf, 2),
         "hands": num_hands_detected,
+        "hold": hold_text,
         "status": status_text,
         "conversation": list(conversation)
     }
@@ -365,7 +345,8 @@ def clear_conversation():
     global stable_start_time
     global display_text
     global display_until
-    global last_motion_time
+    global word_last_commit
+    global phrase_last_commit
 
     conversation.clear()
     word_buffer.clear()
@@ -377,7 +358,8 @@ def clear_conversation():
     stable_start_time = 0
     display_text = ""
     display_until = 0
-    last_motion_time = 0
+    word_last_commit = 0
+    phrase_last_commit = 0
 
     return {
         "message": "Conversation cleared"
