@@ -35,7 +35,7 @@ Install the required libraries using:
 
 ```bash
 pip install opencv-python mediapipe numpy joblib pyttsx3
-
+```
 
 
 
